@@ -96,11 +96,15 @@ Remove 10 important words → numbered blanks (1), (2)...
   }[mode] || base + "Summarize this article for exam preparation.";
 }
 
-// ── Call Gemini ──
+// ── Call Gemini with timeout ──
 async function analyzeWithGemini(mode, article) {
-  const result   = await model.generateContent(buildPrompt(mode, article));
-  const response = await result.response;
-  return response.text();
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error("Gemini API timed out. Please try again.")), 30000)
+  );
+  const geminiPromise = model.generateContent(buildPrompt(mode, article))
+    .then(result => result.response.text());
+
+  return Promise.race([geminiPromise, timeoutPromise]);
 }
 
 // ── Split long messages (Telegram 4096 char limit) ──
@@ -250,7 +254,9 @@ Amid the ongoing war between US-Israel and Iran, the suspension of trans-Suez se
 bot.on("callback_query", async (query) => {
   const chatId = query.message.chat.id;
   const data   = query.data;
-  bot.answerCallbackQuery(query.id);
+
+  // Always answer callback to remove loading spinner on button
+  try { await bot.answerCallbackQuery(query.id); } catch(e) {}
 
   if (!data.startsWith("mode_")) return;
 
@@ -260,18 +266,17 @@ bot.on("callback_query", async (query) => {
   const m = MODES[mode];
 
   if (sessions[chatId].article) {
-    // Article already stored — run immediately
-    bot.editMessageText(
-      `${m.emoji} Running *${m.label}*...\n\n⏳ Please wait 5–10 seconds...`,
-      { chat_id: chatId, message_id: query.message.message_id, parse_mode: "Markdown" }
+    // Send a NEW message instead of editing — much more reliable
+    await bot.sendMessage(chatId,
+      `${m.emoji} Running *${m.label}*...\n\n⏳ Please wait 10–20 seconds...`,
+      { parse_mode: "Markdown" }
     );
     await runAnalysis(chatId, sessions[chatId].article, mode);
   } else {
-    // No article yet — ask for it
     sessions[chatId].waitingForArticle = true;
-    bot.editMessageText(
+    await bot.sendMessage(chatId,
       `${m.emoji} *${m.label}* selected!\n\nNow paste your newspaper article 👇`,
-      { chat_id: chatId, message_id: query.message.message_id, parse_mode: "Markdown" }
+      { parse_mode: "Markdown" }
     );
   }
 });
