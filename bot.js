@@ -1,23 +1,25 @@
 // ============================================
 //   NewsAnalyser AI — Telegram Bot
-//   Optimized for Railway.app deployment
+//   Using Google Gemini API (FREE tier)
+//   Model: gemini-2.0-flash (60 req/min free)
 // ============================================
 
 require("dotenv").config();
 const TelegramBot = require("node-telegram-bot-api");
-const Anthropic   = require("@anthropic-ai/sdk");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
-const ANTHROPIC_KEY  = process.env.ANTHROPIC_API_KEY;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 if (!TELEGRAM_TOKEN) throw new Error("❌ TELEGRAM_TOKEN is missing from environment!");
-if (!ANTHROPIC_KEY)  throw new Error("❌ ANTHROPIC_API_KEY is missing from environment!");
+if (!GEMINI_API_KEY)  throw new Error("❌ GEMINI_API_KEY is missing from environment!");
 
-const bot    = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
-const claude = new Anthropic({ apiKey: ANTHROPIC_KEY });
+const bot   = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
 console.log("✅ Bot connected to Telegram");
-console.log("✅ Claude AI ready");
+console.log("✅ Google Gemini AI ready (FREE tier)");
 console.log("🚀 NewsAnalyser Bot is running on Railway!\n");
 
 // ── Per-user session ──
@@ -94,14 +96,11 @@ Remove 10 important words → numbered blanks (1), (2)...
   }[mode] || base + "Summarize this article for exam preparation.";
 }
 
-// ── Call Claude ──
-async function analyzeWithClaude(mode, article) {
-  const response = await claude.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 1024,
-    messages: [{ role: "user", content: buildPrompt(mode, article) }],
-  });
-  return response.content[0].text;
+// ── Call Gemini ──
+async function analyzeWithGemini(mode, article) {
+  const result   = await model.generateContent(buildPrompt(mode, article));
+  const response = await result.response;
+  return response.text();
 }
 
 // ── Split long messages (Telegram 4096 char limit) ──
@@ -122,9 +121,9 @@ function splitMessage(text, maxLen = 4000) {
 async function runAnalysis(chatId, article, mode) {
   const m = MODES[mode];
   try {
-    const result = await analyzeWithClaude(mode, article);
+    const result = await analyzeWithGemini(mode, article);
     const header = `${m.emoji} *${m.label} Result*\n${"─".repeat(28)}\n\n`;
-    const footer = `\n\n${"─".repeat(28)}\n📚 _NewsAnalyser AI · BCS & Exam Prep_`;
+    const footer = `\n\n${"─".repeat(28)}\n📚 _NewsAnalyser AI · BCS & Exam Prep_\n_Powered by Google Gemini (Free)_`;
     const parts  = splitMessage(header + result + footer);
 
     for (const part of parts) {
